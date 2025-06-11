@@ -1,0 +1,172 @@
+---
+title: "2020_County_data_Final"
+output: html_notebook
+---
+
+```{r}
+#–––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+# 2020: pull z_pov, z_inc, hardship, food‑access, insurance, PCP exactly as before
+#–––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+library(readxl)
+library(dplyr)
+library(janitor)
+library(stringr)
+library(ggplot2)
+
+data_dir <- "/Users/villatoro/Downloads/INFO_896"
+file2020 <- file.path(data_dir, "CHR_2020.xlsx")
+five      <- c("Centre","Clinton","Huntingdon","Juniata","Mifflin")
+
+# 0) peek at the first few rows of Ranked Measure Data
+peek_r2020 <- read_xlsx(file2020,
+                        sheet = "Ranked Measure Data",
+                        skip  = 1,
+                        n_max = 5) %>%
+  clean_names()
+
+
+
+#––– 1. Sheet names?
+excel_sheets(file2020)
+# "Ranked Measure Data", "Additional Measure Data", ….
+
+```
+
+
+
+
+```{r}
+#––– 2. Peek at the Ranked Measure Data to find poverty & income ratio columns
+peek_ranked <- read_xlsx(file2020, sheet="Ranked Measure Data", n_max=5, skip=1)
+names(peek_ranked)
+# choose fips, county, population, z_score_119 (poverty), z_score_126 (income ratio)
+
+```
+
+
+```{r}
+# 1) Build the 2020 “ranked” panel for our five counties
+ranked2020 <- read_xlsx(file2020,
+                        sheet = "Ranked Measure Data",
+                        skip  = 1) %>%
+  clean_names() %>%
+  transmute(
+    county           = tools::toTitleCase(county),
+    z_pov            = z_score_158,                   # poverty z
+    z_inc            = z_score_167,                   # income‑ratio z
+    hardship_index_2 = (z_pov + z_inc) / 2,
+    pcp_rate         = primary_care_physicians_rate   # PCPs per 1k
+  ) %>%
+  filter(county %in% five)
+
+```
+
+```{r}
+#––– 0) Define file and counties
+library(readxl); library(dplyr); library(janitor); library(stringr)
+
+data_dir  <- "/Users/villatoro/Downloads/INFO_896"
+file2020  <- file.path(data_dir, "CHR_2020.xlsx")
+five      <- c("Centre","Clinton","Huntingdon","Juniata","Mifflin")
+
+#––– 1) Peek at the top of the “Additional Measure Data” sheet
+peek_add_2020 <- read_xlsx(file2020,
+                           sheet     = "Additional Measure Data",
+                           col_names = FALSE,
+                           n_max     = 20)
+
+# find where the real header row is
+skip_add_2020 <- max(
+  1,
+  which(apply(peek_add_2020, 1, function(r) any(r == "Population"))) - 1
+)
+
+#––– 2) Read in with headers, then clean names
+add2020_raw <- read_xlsx(file2020,
+                         sheet     = "Additional Measure Data",
+                         skip      = skip_add_2020,
+                         col_names = TRUE) %>%
+  clean_names()
+
+#––– 3) Inspect the column names
+print(names(add2020_raw))
+```
+
+
+```{r}
+add2020 <- add2020_raw %>%
+  transmute(
+    county                = tools::toTitleCase(county),
+    household_income      = median_household_income,
+    percent_food_insecure = percent_food_insecure,
+    percent_limited_access= percent_limited_access_to_healthy_foods,
+    percent_uninsured     = percent_uninsured_136
+  ) %>%
+  filter(county %in% five)
+
+```
+
+```{r}
+# 1) invert median income z
+stats_med_2020 <- add2020 %>%
+  summarise(mu = mean(household_income, na.rm=TRUE),
+            sd = sd(  household_income, na.rm=TRUE))
+
+z_med_2020 <- add2020 %>%
+  mutate(z_med = (household_income - stats_med_2020$mu) / stats_med_2020$sd) %>%
+  select(county, z_med)
+
+# 2) stitch into your core panel
+ext5_2020 <- ranked2020 %>%
+  left_join(z_med_2020, by = "county") %>%
+  left_join(add2020,    by = "county") %>%
+  mutate(
+    hardship_index_3  = rowMeans(across(c(z_pov, z_inc, z_med)), na.rm=TRUE),
+    z_foodinsec       = (percent_food_insecure - mean(percent_food_insecure, na.rm=TRUE)) /
+                        sd(percent_food_insecure,      na.rm=TRUE),
+    z_limit           = (percent_limited_access - mean(percent_limited_access,  na.rm=TRUE)) /
+                        sd(percent_limited_access,    na.rm=TRUE),
+    z_uninsured       = (percent_uninsured - mean(percent_uninsured,            na.rm=TRUE)) /
+                        sd(percent_uninsured,         na.rm=TRUE),
+    z_pcp             = (pcp_rate - mean(pcp_rate,                            na.rm=TRUE)) /
+                        sd(pcp_rate,                  na.rm=TRUE),
+    hardship_index_5  = rowMeans(across(c(z_pov, z_inc, z_med,
+                                          z_foodinsec, z_limit)), na.rm=TRUE)
+  )
+
+# 3) grab 2020 broadband & mortality, join, and plot/regress
+broadband_2020 <- broadband_3plus %>%
+  filter(snapshot == "Dec 2020", area_type == "all") %>%
+  transmute(
+    county        = str_remove(area, " County, PA"),
+    pct_broadband = pct_covered
+  )
+
+mortality_2020 <- death_summary %>%
+  filter(year == 2020, county_name %in% five) %>%
+  transmute(
+    county         = county_name,
+    mortality_rate = mortality_rate
+  )
+
+final2020 <- ext5_2020 %>%
+  left_join(broadband_2020, by = "county") %>%
+  left_join(mortality_2020, by = "county")
+
+# scatter + lm
+ggplot(final2020, aes(hardship_index_5, mortality_rate, label=county)) +
+  geom_point(size=3) + geom_text(vjust=-.5) +
+  geom_smooth(method="lm", se=TRUE) +
+  labs(
+    title="2020: Mortality vs. 5‑Var Hardship",
+    x="Hardship Index (5 vars)", y="Age‑Adj Mortality (per 100k)"
+  ) +
+  theme_minimal()
+
+cor(final2020$hardship_index_5, final2020$mortality_rate)
+
+lm(mortality_rate ~ hardship_index_5 + pct_broadband, data=final2020) %>% summary()
+
+```
+

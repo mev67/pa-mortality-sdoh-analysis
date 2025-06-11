@@ -1,0 +1,1144 @@
+---
+title: "Final_896_STATs"
+output: html_notebook
+---
+
+```{r}
+# 1. Stack our finals and add a year column
+all_years <- bind_rows(
+  final2018 %>% mutate(year = 2018),
+  final2019 %>% mutate(year = 2019),
+  final2020 %>% mutate(year = 2020),
+  final2021 %>% mutate(year = 2021),
+  final2022 %>% mutate(year = 2022)
+)
+```
+
+```{r}
+glimpse(all_years)
+```
+
+```{r}
+# Make sure both data frames have the same county spelling
+pa_food5_tidy <- pa_food5 %>%
+  mutate(county = sub(" County$", "", county))  # strip “ County”
+
+all_years <- all_years %>%
+  left_join(
+    pa_food5_tidy %>% select(county, pct_li_la),
+    by = "county"
+  )
+
+```
+
+```{r}
+all_years %>%
+  distinct(county, year, pct_li_la) %>%
+  arrange(county, year) %>%
+  print(n = Inf)
+
+```
+```{r}
+# first clean up pa_food5 to match our `county` values
+pa_food5_clean <- pa_food5 %>%
+  mutate(
+    county = str_remove(county, " County$")   # drop the word “ County”
+  ) %>%
+  select(county, pct_li_la)
+
+# then join on county
+all_years <- all_years %>%
+  left_join(pa_food5_clean, by = "county")
+
+```
+
+
+```{r}
+all_years %>% distinct(county, pct_li_la) 
+
+```
+```{r}
+all_years <- all_years %>%
+  mutate(
+    pct_li_la = if_else(year == 2019, pct_li_la, NA_real_)
+  )
+
+```
+
+```{r}
+glimpse(all_years)
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+
+# 1. Clean up food‐access table
+pa_food5_clean <- pa_food5 %>%
+  mutate(
+    county = str_remove(county, " County$")  # drop the word “ County”
+  ) %>%
+  select(county, pct_li_la)
+
+# 2. Re‑join it once to our panel
+all_years <- all_years %>%
+  left_join(pa_food5_clean, by = "county")
+
+# 3. Verify
+all_years %>% 
+  filter(county == "Centre") %>% 
+  select(year, pct_li_la.y) %>% 
+  print(n = 5)
+
+
+```
+
+```{r}
+library(dplyr)
+library(plm)
+
+# 1. Make sure we only got one pct_li_la per county
+pa_food5_clean <- pa_food5 %>%
+  mutate(county = str_remove(county, " County$")) %>%    # drop “ County”
+  distinct(county, pct_li_la)
+
+```
+
+```{r}
+# 2. Join it onto our panel
+panel <- all_years %>%
+  left_join(pa_food5_clean, by = "county")
+
+# 3. Run a simple pooled OLS (time‑invariant will stay)
+pooled <- lm(
+  mortality_rate ~ hardship_index_5
+                 + percent_food_insecure
+                 + pct_broadband
+```
+
+
+```{r}
++ pct_li_la,
+  data = panel
+)
+summary(pooled)
+
+```
+
+```{r}
+
+mundlak <- plm(
+  mortality_rate ~ hardship_index_5
+                 + percent_food_insecure
+                 + pct_broadband
+                 + pct_li_la                # between effect
+                 + I(pct_li_la - ave(pct_li_la, county))  # within deviation (will be zero, so captures only between)
+                 ,
+  data  = panel,
+  index = c("county","year"),
+  model = "within"
+)
+summary(mundlak)
+```
+
+
+
+```{r}
+# 2. Summarize by year AND county
+county_year_summary <- all_years %>%
+  group_by(year, county) %>%
+  summarize(
+    mean_hardship = mean(hardship_index_5, na.rm = TRUE),
+    mean_broad    = mean(pct_broadband,    na.rm = TRUE),
+    mean_mort     = mean(mortality_rate,   na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(county, year)
+
+print(county_year_summary)
+
+
+```
+
+#2. Descriptive trends
+
+Time‐series plots of key variables by county
+
+```{r}
+ggplot(all_years, aes(x=year, y=hardship_index_5, color=county)) + geom_line() + geom_point()
+ggplot(all_years, aes(x=year, y=pct_broadband, color=county)) + geom_line() + geom_point()
+ggplot(all_years, aes(x=year, y=mortality_rate, color=county)) + geom_line() + geom_point()
+
+```
+
+#→ Spot which counties saw rising hardship or broadband access, and whether mortality moved in step
+
+================================================================================================
+
+# 2.0 Summary tables by year
+
+```{r}
+all_years %>%
+  group_by(year, county) %>%
+  summarize(
+    mean_hardship = mean(hardship_index_5, na.rm = TRUE),
+    mean_broad    = mean(pct_broadband,    na.rm = TRUE),
+    mean_mort     = mean(mortality_rate,   na.rm = TRUE)
+  ) %>%
+  arrange(year, county)
+
+```
+
+```{r}
+county_year_summary %>%
+  pivot_wider(
+    names_from   = year,
+    values_from  = c(mean_hardship, mean_broad, mean_mort),
+    names_sep    = "_"
+  )
+
+```
+
+```{r}
+all_years %>%
+  group_by(year, county) %>%
+  summarize(
+    mean_hardship = mean(hardship_index_5, na.rm = TRUE),
+    mean_broad    = mean(pct_broadband,    na.rm = TRUE),
+    mean_mort     = mean(mortality_rate,   na.rm = TRUE),
+    .groups       = "drop"
+  ) %>%
+  arrange(county, year) %>%
+  pivot_wider(
+    names_from  = year,
+    values_from = c(mean_hardship, mean_broad, mean_mort),
+    names_sep   = "_"
+  )
+
+```
+
+```{r}
+install.packages("xfun")
+
+```
+
+```{r}
+install.packages(c("gt","tidyverse"))
+
+```
+
+
+```{r}
+library(gt)
+
+# 1. Build the summary
+county_year_summary <- all_years %>%
+  group_by(year, county) %>%
+  summarize(
+    Hardship  = mean(hardship_index_5, na.rm=TRUE),
+    Broadband = mean(pct_broadband,    na.rm=TRUE),
+    Mortality = mean(mortality_rate,   na.rm=TRUE),
+    .groups    = "drop"
+  )
+
+# 2. Render with gt
+county_year_summary %>%
+  gt(groupname_col = "year") %>%
+  fmt_number(
+    columns  = c(Hardship, Broadband, Mortality),
+    decimals = 2
+  ) %>%
+  cols_label(
+    year      = "Year",
+    county    = "County",
+    Hardship  = "Mean Hardship Index",
+    Broadband = "Mean % Broadband Access",
+    Mortality = "Mean Mortality Rate"
+  ) %>%
+  tab_header(
+    title    = md("**County‐Year Summary (2018–2022)**"),
+    subtitle = "Five Pennsylvania Counties"
+  ) %>%
+  tab_source_note(
+    source_note = "Data: CHR (social & broadband) + County mortality"
+  )
+
+```
+
+```{r}
+library(ggplot2)
+library(patchwork)
+
+p1 <- ggplot(all_years, aes(x=year, y=hardship_index_5, color=county)) +
+  geom_line(size=1) + geom_point() +
+  labs(title="Hardship Index", y="Hardship") +
+  theme_minimal() +
+  theme(legend.position="none")
+
+p2 <- ggplot(all_years, aes(x=year, y=pct_broadband, color=county)) +
+  geom_line(size=1) + geom_point() +
+  labs(title="% Broadband Access", y="% Access") +
+  theme_minimal() +
+  theme(legend.position="none")
+
+p3 <- ggplot(all_years, aes(x=year, y=mortality_rate, color=county)) +
+  geom_line(size=1) + geom_point() +
+  labs(title="Mortality Rate", y="Deaths per 100k") +
+  theme_minimal() +
+  theme(legend.position="bottom")
+
+(p1 | p2) / p3 +
+  plot_annotation(
+    title = "Trends in Hardship, Broadband & Mortality (2018–2022)",
+    subtitle = "Five Pennsylvania Counties",
+    theme = theme(plot.title = element_text(size=14, face="bold"))
+  )
+
+```
+
+```{r}
+library(reactable)
+reactable(
+  county_year_summary,
+  columns = list(
+    Hardship = colDef(format = colFormat(digits = 2)),
+    Broadband= colDef(format = colFormat(digits = 2, suffix = "%")),
+    Mortality= colDef(format = colFormat(digits = 1))
+  ),
+  groupBy = "year",
+  defaultPageSize = 10
+)
+
+```
+=========================================================================================================
+
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(plm)
+
+```
+
+
+```{r}
+all_years <- all_years %>%
+  mutate(period = if_else(year < 2020, "pre_covid", "post_covid"))
+
+all_years %>%
+  group_by(period) %>%
+  summarize(
+    avg_hardship = mean(hardship_index_5, na.rm=TRUE),
+    avg_foodinsec = mean(percent_food_insecure, na.rm=TRUE),
+    avg_broadband = mean(pct_broadband, na.rm=TRUE),
+    avg_mortality = mean(mortality_rate, na.rm=TRUE)
+  )
+
+```
+
+```{r}
+all_years %>%
+  group_by(period) %>%
+  summarize(
+    cor_pov    = cor(hardship_index_5, mortality_rate, use="complete.obs"),
+    cor_food   = cor(percent_food_insecure, mortality_rate, use="complete.obs"),
+    cor_bb     = cor(pct_broadband, mortality_rate, use="complete.obs")
+  )
+
+```
+#2. Panel Regression: County Fixed Effects
+--within‐county (fixed‐effects) model isolates how changes in poverty, food insecurity, and broadband within --each county predict mortality, controlling for all time‑invariant county traits:
+```{r}
+library(plm)
+
+# 2a. Base FE model
+fe_base <- plm(
+  mortality_rate ~ hardship_index_5 + percent_food_insecure + pct_broadband,
+  data  = all_years,
+  index = c("county","year"),
+  model = "within"
+)
+summary(fe_base)
+
+```
+
+#3. Testing Pre‑ vs. Post‑COVID Shifts
+
+A. Interaction with a COVID dummy
+```{r}
+all_years <- all_years %>%
+  mutate(post = if_else(year >= 2020, 1, 0))
+
+fe_interact <- plm(
+  mortality_rate ~ 
+    hardship_index_5*post +
+    percent_food_insecure*post +
+    pct_broadband*post,
+  data  = all_years,
+  index = c("county","year"),
+  model = "within"
+)
+summary(fe_interact)
+
+```
+
+#B. Separate FE models pre & post
+Compare the size and significance of your predictors across the two periods.
+```{r}
+fe_pre  <- plm(mortality_rate ~ hardship_index_5 + percent_food_insecure + pct_broadband,
+               data = filter(all_years, year < 2020),
+               index=c("county","year"), model="within")
+fe_post <- plm(mortality_rate ~ hardship_index_5 + percent_food_insecure + pct_broadband,
+               data = filter(all_years, year >= 2020),
+               index=c("county","year"), model="within")
+summary(fe_pre); summary(fe_post)
+
+```
+
+```{r}
+library(lmtest)
+library(sandwich)
+coeftest(fe_interact,
+         vcov = vcovHC(fe_interact, type="HC1", cluster="group"))
+
+```
+
+#Add time fixed effects to soak up common shocks (e.g. a national pandemic wave):
+```{r}
+fe_time <- plm(
+  mortality_rate ~ hardship_index_5*post + percent_food_insecure*post + pct_broadband*post + factor(year),
+  data  = all_years,
+  index = c("county","year"),
+  model = "within"
+)
+summary(fe_time)
+
+```
+
+# 
+```{r}
+re_model <- plm( mortality_rate ~ hardship_index_5 + percent_food_insecure + pct_broadband,
+                 data=all_years, model="random", index=c("county","year"))
+phtest(fe_base, re_model)
+
+```
+
+```{r}
+library(margins)
+m <- lm(mortality_rate ~ hardship_index_5*post + percent_food_insecure*post + pct_broadband*post + factor(county),
+        data=all_years)
+plot(margins(m), pars = c("hardship_index_5","hardship_index_5:post"))
+
+```
+
+
+
+```{r}
+# Period‐specific correlations
+all_years %>%
+  group_by(period) %>%
+  summarize(
+    cor_pov  = cor(hardship_index_5,    mortality_rate, use="complete.obs"),
+    cor_food = cor(percent_food_insecure, mortality_rate, use="complete.obs"),
+    cor_bb   = cor(pct_broadband,       mortality_rate, use="complete.obs"),
+    .groups  = "drop"
+  )
+
+# Fixed‐effects panel regression with COVID interaction
+all_years <- all_years %>%
+  mutate(post = if_else(year >= 2020, 1, 0))
+
+fe_interact <- plm(
+  mortality_rate ~ 
+    hardship_index_5*post +
+    percent_food_insecure*post +
+    pct_broadband*post,
+  data  = all_years,
+  index = c("county","year"),
+  model = "within"
+)
+summary(fe_interact)
+
+```
+
+```{r}
+library(dplyr)
+library(plm)
+
+# 1a. Create one‑year lags for our key predictors
+all_years_lag <- all_years %>%
+  arrange(county, year) %>%
+  group_by(county) %>%
+  mutate(
+    lag_food  = lag(percent_food_insecure, 1),
+    lag_pov   = lag(hardship_index_5,      1),
+    lag_bb    = lag(pct_broadband,         1)
+  ) %>%
+  ungroup()
+
+# 1b. Run a fixed‑effects model with lagged predictors and COVID interaction
+fe_lag <- plm(
+  mortality_rate ~ 
+    lag_food*post + lag_pov*post + lag_bb*post,
+  data  = all_years_lag,
+  index = c("county","year"),
+  model = "within"
+)
+summary(fe_lag)
+
+```
+
+```{r}
+library(plm)
+
+# 3a. Create year‑centered dummies (excluding 2019 as our base)
+all_years <- all_years %>%
+  mutate(across(year, as.factor))
+
+# 3b. FE event‑study model
+es_model <- plm(
+  mortality_rate ~ 
+    # interactions of interest
+    hardship_index_5:factor(year) +
+    percent_food_insecure:factor(year) +
+    pct_broadband:factor(year) +
+    # main effects of controls or fixed county effects are implicit
+    factor(year),
+  data  = all_years,
+  index = c("county","year"),
+  model = "within"
+)
+
+# 3c. Extract and plot coefficients
+library(broom)
+coefs <- tidy(es_model) %>%
+  filter(str_detect(term, "hardship_index_5:factor\\(year\\)")) %>%
+  mutate(
+    year = str_extract(term, "\\d{4}") %>% as.integer(),
+    estimate = estimate,
+    conf_low  = estimate - 1.96*std.error,
+    conf_high = estimate + 1.96*std.error
+  )
+
+ggplot(coefs, aes(x=year, y=estimate)) +
+  geom_hline(yintercept = 0, linetype="dashed") +
+  geom_pointrange(aes(ymin=conf_low, ymax=conf_high)) +
+  labs(
+    title = "Event‐Study: Hardship → Mortality by Year",
+    x     = "Year",
+    y     = "Slope on Hardship Index"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+library(dplyr)
+library(sf)
+library(tigris)
+library(ggplot2)
+options(tigris_use_cache = TRUE)
+
+```
+
+
+```{r}
+# 1. Pull in the county shapes
+pa_counties <- counties(state = "PA", cb = TRUE, class = "sf")
+
+# 2. Filter to your five counties and join
+map_df <- pa_counties %>%
+  filter(NAME %in% c("Centre","Clinton","Huntingdon","Juniata","Mifflin")) %>%
+  left_join(all_years, by = c("NAME" = "county"))
+
+# 3. Now we can ggplot safely:
+ggplot(data = map_df) +
+  geom_sf(aes(fill = hardship_index_5), color = "white") +
+  facet_wrap(~ year, ncol = 3) +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
+  labs(
+    fill    = "Hardship Index",
+    title   = "County Hardship Index (2018–2022)",
+    caption = "Source: CHR + County mortality"
+  ) +
+  theme_void()
+
+```
+```{r}
+# 1. Pull in the county shapes
+pa_counties <- counties(state = "PA", cb = TRUE, class = "sf")
+
+# 2. Filter to our five counties and join
+map_df <- pa_counties %>%
+  filter(NAME %in% c("Centre","Clinton","Huntingdon","Juniata","Mifflin")) %>%
+  left_join(all_years, by = c("NAME" = "county"))
+
+# 3. Plot hardship with county labels
+ggplot(data = map_df) +
+  geom_sf(aes(fill = hardship_index_5), color = "white") +
+  geom_sf_text(aes(label = NAME), size = 3, color = "black") +
+  facet_wrap(~ year, ncol = 3) +
+  scale_fill_viridis_c(option = "plasma", na.value = "grey90") +
+  labs(
+    fill    = "Hardship Index",
+    title   = "County Hardship Index (2018–2022)",
+    caption = "Source: CHR + County mortality"
+  ) +
+  theme_void()
+```
+===========================================================================
+
+
+```{r}
+library(dplyr)
+library(knitr)
+library(tidyr)
+
+
+demo_bb_2021 %>%
+  transmute(
+    County             = county,
+    `Population (est)` = population,
+    `% Rural`          = pct_rural,
+    `HS Grad+ (%)`     = hs_grad,
+    `Bachelor’s+ (%)`  = bach_plus,
+    `Median HH Income` = med_hh_inc,
+    `% ≥3 Broadband`   = pct_bb3
+  ) %>%
+  kable(
+    caption = "Table 1. Central PA County Characteristics, 2021",
+    digits  = c(0, 1, 1, 1, 1, 0, 1)
+  )
+
+```
+
+```{r}
+library(dplyr)
+library(tidyr)  
+
+df_panel <- df_panel %>%
+  left_join(demo_bb_2021 %>% mutate(year = 2021),
+            by = c("county","year")) %>%
+  arrange(county, year) %>%
+  group_by(county) %>%
+  fill(population:pct_bb3, .direction = "down") %>%  # carry 2021 values forward
+  fill(population:pct_bb3, .direction = "up") %>%    # then backward
+  ungroup()
+
+```
+
+```{r}
+df_panel %>% filter(year == 2021) %>% select(county, population:pct_bb3)
+
+```
+#Table A:
+```{r}
+library(dplyr)
+library(knitr)
+
+# Our 2021 lookup (demo_bb_2021) already has exactly what we need:
+demo_bb_2021 %>%
+  transmute(
+    County             = county,
+    `Population (est)` = population,
+    `% Rural`          = pct_rural,
+    `HS Grad+ (%)`     = hs_grad,
+    `Bachelor’s+ (%)`  = bach_plus,
+    `Median HH Income` = med_hh_inc,
+    `% ≥3 Broadband`   = pct_bb3
+  ) %>%
+  kable(
+    caption = "Table 1. Central PA County Characteristics, 2021",
+    digits  = c(0, 1, 1, 1, 1, 0, 1)
+  )
+
+```
+
+```{r}
+library(ggplot2)
+library(viridis)    # for scale_fill_viridis_c()
+library(tigris)
+library(sf)
+
+options(tigris_use_cache = TRUE)
+
+# 1. Load PA county geometries and filter
+pa_cty <- counties(state="PA", year=2021, class="sf") %>%
+  rename(county = NAME) %>%
+  filter(county %in% c("Centre","Clinton","Huntingdon","Juniata","Mifflin"))
+
+# 2. Join your hardship panel
+map_df <- pa_cty %>%
+  left_join(df_panel, by = "county")
+
+# 3. Plot
+ggplot(map_df) +
+  geom_sf(aes(fill = hardship5), color = "white", size = 0.2) +
+  geom_sf_text(aes(label = county), size = 3, color = "black") +
+  scale_fill_viridis_c(
+    option    = "magma",
+    direction = -1,
+    name      = "Hardship\nIndex (z)",
+    na.value  = "grey90"
+  ) +
+  facet_wrap(~ year, ncol = 3) +
+  coord_sf(datum = NA) +                              # drop default graticule labels
+  theme_void(base_size = 12) +                        # starts from a blank canvas
+  theme(
+    strip.background = element_rect(fill = "white", colour = "black"),
+    strip.text       = element_text(face = "bold", size = 12),
+    legend.position  = "right",
+    legend.title     = element_text(size = 10),
+    legend.text      = element_text(size = 8),
+    plot.title       = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle    = element_text(size = 10, hjust = 0.5),
+    plot.caption     = element_text(size = 8, hjust = 1)
+  ) +
+  labs(
+    title    = "Figure 1. Five‑Variable Hardship Index by County (2018–2022)",
+    subtitle = "Higher z‑scores indicate greater socioeconomic + food‑access stress",
+    caption  = "Source: County Health Rankings · USDA · FCC"
+  )
+
+
+```
+
+```{r}
+ggplot(map_df) +
+  geom_sf(aes(fill = hardship5), color = "white", size = 0.2) +
+  geom_sf_text(aes(label = county), size = 3) +
+  scale_fill_viridis_c(
+    option    = "viridis",    # default, but a bit lighter than "magma"
+    direction = 1,            # low → high maps to light → dark
+    name      = "Hardship\nIndex (z)",
+    na.value  = "grey90"
+  ) +
+  facet_wrap(~ year, ncol = 3) +
+  coord_sf(datum = NA) +
+  theme_void() +
+  theme(
+    strip.background = element_rect(fill = "white", colour = "black"),
+    strip.text       = element_text(face = "bold", size = 12),
+    legend.position  = "right",
+    plot.title       = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle    = element_text(size = 10, hjust = 0.5),
+    plot.caption     = element_text(size = 8, hjust = 1)
+  ) +
+  labs(
+    title    = "Figure 1. Five‑Variable Hardship Index by County (2018–2022)",
+    subtitle = "Higher z‑scores indicate greater socioeconomic + food‑access stress",
+    caption  = "Source: CHR · USDA · FCC"
+  )
+
+```
+
+```{r}
+library(RColorBrewer)
+
+ggplot(map_df) +
+  geom_sf(aes(fill = hardship5), color = "white", size = 0.2) +
+  geom_sf_text(aes(label = county), size = 3) +
+  scale_fill_distiller(
+    palette   = "YlGnBu",    # yellow–green–blue
+    direction = 1,           # low = light yellow, high = dark blue
+    name      = "Hardship\nIndex (z)",
+    na.value  = "grey90"
+  ) +
+  facet_wrap(~ year, ncol = 3) +
+  coord_sf(datum = NA) +
+  theme_void() +
+  theme(
+    strip.background = element_rect(fill = "white", colour = "black"),
+    strip.text       = element_text(face = "bold", size = 12),
+    legend.position  = "right",
+    plot.title       = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle    = element_text(size = 10, hjust = 0.5),
+    plot.caption     = element_text(size = 8, hjust = 1)
+  ) +
+  labs(
+    title    = "Figure 2. Five_33Variable Hardship Index by County (2018–2022)",
+    subtitle = "Higher z_scores indicate greater socioeconomic + food‑access stress",
+    caption  = "Source: CHR · USDA · FCC"
+  )
+3
+```
+
+# Bivariate Relationships
+Figure 2. Time Series of Mortality and Key Indices
+• Line plot with year on the x axis, overlaid curves for:
+•	Age adjusted mortality
+•	Hardship index
+•	Broadband coverage (%)
+• Facet by county or use multiple y axes; shows parallel trends and inflection post 2020.
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)    # for rescale()
+
+# 1. Build a trends table from all_years:
+df_trends <- all_years %>%
+  transmute(
+    county      = county,
+    year        = year,
+    mortality   = mortality_rate,      # raw mortality
+    hardship    = hardship_index_5,    # your 5‑var index
+    broadband   = pct_broadband        # percent ≥3 providers
+  ) %>%
+  group_by(county) %>%
+  # rescale each series to [0,1] within each county
+  mutate(
+    mort_std     = rescale(mortality, to = c(0,1)),
+    hardship_std = rescale(hardship,  to = c(0,1)),
+    bb_std       = rescale(broadband, to = c(0,1))
+  ) %>%
+  ungroup() %>%
+  pivot_longer(
+    cols      = ends_with("_std"),
+    names_to  = "metric",
+    values_to = "value"
+  ) %>%
+  mutate(
+    metric = recode(metric,
+      mort_std     = "Mortality",
+      hardship_std = "Hardship",
+      bb_std       = "Broadband")
+  )
+
+# 2. Plot Figure 2:
+ggplot(df_trends, aes(x = year, y = value, color = metric)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ county, ncol = 2) +
+  scale_color_manual(
+    values = c(
+      "Mortality" = "#222222",
+      "Hardship"  = "#2ca02c",
+      "Broadband" = "#1f77b4"
+    )
+  ) +
+  scale_x_continuous(breaks = 2018:2022) +
+  labs(
+    title    = "Figure 3###. Time Series of Mortality, Hardship & Broadband (2018–2022)",
+    subtitle = "Values rescaled 0–1 within each county for comparability",
+    x        = "Year",
+    y        = "Rescaled Metric (0 = lowest observed, 1 = highest)",
+    color    = NULL,
+    caption  = "Source: PA Dept. of Health, CHR, USDA, FCC"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position   = "bottom",
+    strip.text        = element_text(face = "bold"),
+    plot.title        = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle     = element_text(size = 10, hjust = 0.5)
+  )
+
+```
+
+```{r}
+#── Libraries ─────────────────────────────────────────────────────────────────────
+library(dplyr)
+library(ggplot2)
+library(ggpubr)    # for stat_cor()
+library(patchwork) # to combine plots
+
+#── Prepare data ─────────────────────────────────────────────────────────────────
+df_scatter <- all_years %>%
+  transmute(
+    county    = county,
+    year      = year,
+    mortality = mortality_rate,
+    hardship  = hardship_index_5,
+    food_lim  = percent_limited_access,
+    broadband = pct_broadband,
+    period    = if_else(year < 2020, "Pre‑COVID", "Post‑COVID")
+  )
+
+#── Helper to build one scatter panel ──────────────────────────────────────────────
+make_plot <- function(x, xlab) {
+  ggplot(df_scatter, aes_string(x = x, y = "mortality")) +
+    geom_point(alpha = 0.7) +
+    geom_smooth(method = "lm", se = FALSE, color = "steelblue") +
+    stat_cor(method = "pearson",
+             label.x.npc = "left", label.y.npc = 0.95,
+             size = 3) +
+    labs(x = xlab, y = "Age‑adjusted mortality\n(per 100 000)") +
+    theme_minimal(base_size = 12)
+}
+
+#── A. Panel per Year ───────────────────────────────────────────────────────────────
+p1 <- make_plot("hardship",  "Hardship Index (z)")   + facet_wrap(~year)
+p2 <- make_plot("food_lim",  "% Limited Access")     + facet_wrap(~year)
+p3 <- make_plot("broadband","% ≥3 Broadband Providers") + facet_wrap(~year)
+
+figure3A <- (p1 | p2 | p3) +
+  plot_annotation(
+    title = "Figure 3A. Mortality vs. Key Predictors (Faceted by Year)",
+    caption = "Points = counties; lines = OLS fits; r = Pearson correlation"
+  )
+
+#── B. Facet Pre vs Post COVID ─────────────────────────────────────────────────────
+q1 <- make_plot("hardship",  "Hardship Index (z)")   + facet_wrap(~period)
+q2 <- make_plot("food_lim",  "% Limited Access")     + facet_wrap(~period)
+q3 <- make_plot("broadband","% ≥3 Broadband Providers") + facet_wrap(~period)
+
+figure3B <- (q1 | q2 | q3) +
+  plot_annotation(
+    title = "Figure 3B. Mortality vs. Predictors (Pre‑ vs Post‑COVID)",
+    caption = "Each panel shows OLS trend + Pearson _r_"
+  )
+
+#── Print both variants ────────────────────────────────────────────────────────────
+figure3A
+figure3B
+
+```
+
+# Figure 4. Correlation Heatmap
+• Pearson (and/or Spearman) correlations among all continuous variables
+• Highlights multicollinearity and guides your index construction story.
+
+```{r}
+#── Libraries ─────────────────────────────────────────────────────────────────────
+library(dplyr)
+library(reshape2)   # for melt()
+library(ggplot2)
+library(gridExtra)  # to arrange two plots side by side
+
+#── 1. Select & prepare variables ─────────────────────────────────────────────────
+# From your stacked all_years data frame:
+vars_df <- all_years %>%
+  transmute(
+    Mortality    = mortality_rate,
+    Hardship     = hardship_index_5,
+    FoodAccess   = percent_food_insecure,
+    LimAccess    = percent_limited_access,
+    Broadband    = pct_broadband
+  )
+
+#── 2. Compute Correlation Matrices ────────────────────────────────────────────────
+pearson_mat <- cor(vars_df, use = "pairwise.complete.obs", method = "pearson")
+spearman_mat<- cor(vars_df, use = "pairwise.complete.obs", method = "spearman")
+
+# Melt for ggplot
+pearson_melt <- melt(pearson_mat, varnames = c("Var1","Var2"), value.name = "r")
+spearman_melt<- melt(spearman_mat, varnames = c("Var1","Var2"), value.name = "r")
+
+#── 3. Plot Helper ─────────────────────────────────────────────────────────────────
+plot_corr <- function(melted, title) {
+  ggplot(melted, aes(x = Var2, y = Var1, fill = r)) +
+    geom_tile(color = "white") +
+    geom_text(aes(label = sprintf("%.2f", r)), size = 3) +
+    scale_fill_gradient2(
+      low    = "steelblue",
+      mid    = "white",
+      high   = "darkred",
+      midpoint = 0,
+      limits = c(-1, 1),
+      name   = "r"
+    ) +
+    coord_fixed() +
+    theme_minimal(base_size = 12) +
+    theme(
+      axis.text.x      = element_text(angle = 45, vjust = 1, hjust = 1),
+      axis.title       = element_blank(),
+      panel.grid       = element_blank(),
+      plot.title       = element_text(face = "bold", hjust = 0.5)
+    ) +
+    labs(title = title)
+}
+
+p1 <- plot_corr(pearson_melt,  "Pearson Correlation")
+p2 <- plot_corr(spearman_melt, "Spearman Correlation")
+
+#── 4. Display Side by Side ────────────────────────────────────────────────────────
+grid.arrange(p1, p2, ncol = 2,
+             top = textGrob("Figure 4. Correlation Heatmaps of Key Variables", 
+                            gp = gpar(fontsize = 15, fontface = "bold")))
+
+```
+
+
+```{r}
+library(broom)
+library(knitr)
+#Table 4. Yearly Pearson Correlations
+
+# Compute r and p-value per year for each predictor
+table4 <- all_years %>%
+  group_by(year) %>%
+  summarise(
+    r_hardship = cor.test(hardship_index_5, mortality_rate)$estimate %>% unname(),
+    p_hardship = cor.test(hardship_index_5, mortality_rate)$p.value,
+    r_foodlim  = cor.test(percent_limited_access, mortality_rate)$estimate %>% unname(),
+    p_foodlim  = cor.test(percent_limited_access, mortality_rate)$p.value,
+    r_bb       = cor.test(pct_broadband, mortality_rate)$estimate %>% unname(),
+    p_bb       = cor.test(pct_broadband, mortality_rate)$p.value
+  ) %>%
+  mutate(across(starts_with("r_"), ~ round(.x, 2)),
+         across(starts_with("p_"), ~ format.pval(.x, digits = 2))) %>%
+  rename(
+    Year                 = year,
+    `r (Hardship)`       = r_hardship,
+    `p (Hardship)`       = p_hardship,
+    `r (Limited Access)` = r_foodlim,
+    `p (Limited Access)` = p_foodlim,
+    `r (Broadband)`      = r_bb,
+    `p (Broadband)`      = p_bb
+  )
+
+kable(
+  table4,
+  caption = "Table 4. Pearson Correlations between Mortality and Key Predictors, by Year"
+)
+
+```
+
+```{r}
+library(dplyr)
+library(broom)
+library(purrr)
+library(knitr)
+
+#Table 5. Cross-Sectional Regression by Year
+
+# Function to run Model A and Model B for one year
+run_year_models <- function(df, yr) {
+  d <- filter(df, year == yr)
+  mA <- lm(mortality_rate ~ hardship_index_3, data = d)
+  mB <- lm(mortality_rate ~ hardship_index_3 + percent_limited_access, data = d)
+  
+  tibble(
+    Year      = yr,
+    Model     = c("A", "B"),
+    Predictor = c("Hardship", "Limited Access"),
+    Estimate  = c(coef(mA)["hardship_index_3"], coef(mB)["percent_limited_access"]),
+    conf.low  = c(confint(mA)["hardship_index_3",1], confint(mB)["percent_limited_access",1]),
+    conf.high = c(confint(mA)["hardship_index_3",2], confint(mB)["percent_limited_access",2]),
+    p.value   = c(summary(mA)$coefficients["hardship_index_3","Pr(>|t|)"],
+                  summary(mB)$coefficients["percent_limited_access","Pr(>|t|)"])
+  )
+}
+
+# Apply across years
+table5 <- map_dfr(2019:2022, ~ run_year_models(all_years, .x)) %>%
+  filter(!(Year == 2018 & Model == "B")) %>%  # if you only reported 2019 & 2022
+  mutate(
+    Estimate = round(Estimate, 0),
+    conf.low = round(conf.low, 0),
+    conf.high= round(conf.high, 0),
+    p.value  = format.pval(p.value, digits = 2),
+    `95% CI` = paste0("(", conf.low, "–", conf.high, ")")
+  ) %>%
+  select(Year, Model, Predictor, Estimate, `95% CI`, `p` = p.value)
+
+kable(
+  table5,
+  caption = "Table 5. Cross-Sectional Regression Coefficients (Deaths/100 000) by Year"
+)
+
+```
+
+```{r}
+# Inspect your panel data
+names(df_panel)
+str(df_panel)
+
+# If df_panel doesn’t have mortality, try inspecting all_years
+names(all_years)
+str(all_years)
+
+```
+
+
+#Table 6. Fixed-Effects Panel Regression
+```{r}
+library(plm)
+library(broom)
+library(dplyr)
+library(knitr)
+
+# Prepare the panel data
+panel_df <- all_years %>%
+  select(
+    county,
+    year,
+    mortality = mortality_rate,
+    hardship = hardship_index_5,
+    food_access = percent_limited_access,
+    broadband = pct_broadband
+  )
+
+# Fit the within‐county fixed‐effects model
+fe_mod <- plm(
+  mortality ~ hardship + food_access + broadband,
+  data   = panel_df,
+  index  = c("county","year"),
+  model  = "within"
+)
+
+# Tidy & format for the table
+table6 <- tidy(fe_mod, conf.int = TRUE) %>%
+  filter(term != "(Intercept)") %>%
+  transmute(
+    Predictor = recode(term,
+                       hardship    = "Composite Hardship (SD)",
+                       food_access = "Percent Limited Access",
+                       broadband   = "Broadband Coverage"),
+    Estimate  = round(estimate,    0),
+    `95% CI`  = paste0("(", round(conf.low,0), "–", round(conf.high,0), ")"),
+    p         = format.pval(p.value, digits = 2)
+  )
+
+kable(
+  table6,
+  caption = "Table 6. Fixed-Effects Panel Regression Results (2018–2022)"
+)
+
+
+```
+
+# Table 7. Interaction Effects (Hardship × Post-COVID, etc.)
+```{r}
+library(dplyr)
+library(broom)
+library(knitr)
+
+# Add post_covid indicator
+panel_df2 <- panel_df %>%
+  mutate(post_covid = if_else(year >= 2020, 1, 0))
+
+# Fit interactions in one linear model
+int_mod <- lm(
+  mortality ~ hardship * post_covid +
+               food_access * post_covid +
+               broadband * post_covid,
+  data = panel_df2
+)
+
+# Extract just the interaction terms
+table7 <- tidy(int_mod, conf.int = TRUE) %>%
+  filter(grepl(":post_covid", term)) %>%
+  transmute(
+    Predictor = case_when(
+      term == "hardship:post_covid"    ~ "Δ Hardship × Post-COVID",
+      term == "food_access:post_covid" ~ "Δ Limited Access × Post-COVID",
+      term == "broadband:post_covid"   ~ "Δ Broadband × Post-COVID"
+    ),
+    Estimate = round(estimate, 1),
+    `95% CI` = paste0("(", round(conf.low,1), "–", round(conf.high,1), ")"),
+    p        = format.pval(p.value, digits = 2)
+  )
+
+kable(
+  table7,
+  caption = "Table 7. Interaction Effects: Post-COVID Modifications"
+)
+
+```
+

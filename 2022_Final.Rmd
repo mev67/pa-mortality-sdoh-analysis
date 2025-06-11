@@ -1,0 +1,261 @@
+---
+title: "2022_County_Data_Final"
+output: html_notebook
+---
+
+```{r}
+# Libraries & Parameters
+library(readxl)
+library(dplyr)
+library(janitor)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(purrr)
+
+data_dir  <- "/Users/villatoro/Downloads/INFO_896"
+file2022  <- file.path(data_dir, "CHR_2022.xlsx")
+five      <- c("Centre","Clinton","Huntingdon","Juniata","Mifflin")
+```
+
+
+```{r}
+#––– 1. Ranked Measure Data → z_pov, z_inc, hardship_index_2, pcp_rate
+peek_ranked2022 <- read_xlsx(file2022, sheet="Ranked Measure Data", n_max=5, skip=1)
+names(peek_ranked2022)
+# identify which Z‑Score columns correspond to "% Children in Poverty" and "Income Ratio"
+# e.g. z_score_180 and z_score_188 (replace below with the actual names)
+```
+
+
+```{r}
+ranked2022 <- read_xlsx(file2022, sheet="Ranked Measure Data", skip=1) %>%
+  clean_names() %>%
+  transmute(
+    county           = tools::toTitleCase(county),
+    z_pov            = z_score_167,                # % children in poverty
+    z_inc            = z_score_176,                # income ratio
+    hardship_index_2 = (z_score_167 + z_score_176)/2,
+    pcp_rate         = primary_care_physicians_rate
+  ) %>%
+  filter(county %in% five)
+
+#––– 2. Additional Measure Data → household_income, food & insurance
+peek_add2022  <- read_xlsx(file2022, sheet="Additional Measure Data", n_max=20, col_names=FALSE)
+skip_add2022  <- max(1, which(apply(peek_add2022, 1, 
+                                     function(r) any(r %in% c("County","Population")))) - 1)
+add_raw2022   <- read_xlsx(file2022, sheet="Additional Measure Data",
+                           skip=skip_add2022, col_names=TRUE) %>%
+  clean_names()
+
+add2022 <- add_raw2022 %>%
+  transmute(
+    county                 = tools::toTitleCase(county),
+    household_income       = median_household_income,
+    percent_food_insecure  = percent_food_insecure,
+    percent_limited_access = percent_limited_access_to_healthy_foods,
+    percent_uninsured      = percent_uninsured_138   # use the first % Uninsured
+  ) %>%
+  filter(county %in% five)
+
+```
+
+```{r}
+#––– 3. Compute z_med
+stats_med2022 <- add2022 %>%
+  summarize(mu = mean(household_income, na.rm=TRUE),
+            sd = sd(  household_income, na.rm=TRUE))
+
+z_med2022 <- add2022 %>%
+  mutate(z_med = (household_income - stats_med2022$mu) / stats_med2022$sd) %>%
+  select(county, z_med)
+
+```
+
+
+
+
+```{r}
+add_raw2022 <- read_xlsx(
+  file2022,
+  sheet     = "Additional Measure Data",
+  skip      = skip_add2022,
+  col_names = TRUE
+) %>% clean_names()
+
+# run this to see the exact name for the % Uninsured field:
+names(add_raw2022)
+
+```
+
+
+
+
+
+```{r}
+add2022 <- add_raw2022 %>%
+  transmute(
+    county                 = tools::toTitleCase(county),
+    household_income       = median_household_income,
+    percent_food_insecure  = percent_food_insecure,
+    percent_limited_access = percent_limited_access_to_healthy_foods,
+    percent_uninsured      = percent_uninsured_138   
+  ) %>%
+  filter(county %in% five)
+
+#––– 3. Compute z_med (income Z‑score)
+stats_med2022 <- add2022 %>%
+  summarize(mu = mean(household_income, na.rm=TRUE),
+            sd = sd(  household_income, na.rm=TRUE))
+
+z_med2022 <- add2022 %>%
+  mutate(z_med = (household_income - stats_med2022$mu) / stats_med2022$sd) %>%
+  select(county, z_med)
+
+#––– 4. Build core 2022 panel (ext5_2022)
+ext5_2022 <- ranked2022 %>%
+  left_join(z_med2022, by="county") %>%
+  left_join(add2022,   by="county") %>%
+  mutate(
+    hardship_index_3 = rowMeans(across(c(z_pov, z_inc, z_med)), na.rm=TRUE),
+    z_foodinsec      = (percent_food_insecure  - mean(percent_food_insecure,  na.rm=TRUE)) /
+                       sd(percent_food_insecure,  na.rm=TRUE),
+    z_limit          = (percent_limited_access - mean(percent_limited_access, na.rm=TRUE)) /
+                       sd(percent_limited_access, na.rm=TRUE),
+    z_uninsured      = (percent_uninsured      - mean(percent_uninsured,      na.rm=TRUE)) /
+                       sd(percent_uninsured,      na.rm=TRUE),
+    z_pcp            = (pcp_rate               - mean(pcp_rate,               na.rm=TRUE)) /
+                       sd(pcp_rate,               na.rm=TRUE),
+    hardship_index_5 = rowMeans(across(c(z_pov, z_inc, z_med,
+                                         z_foodinsec, z_limit)), na.rm=TRUE)
+  )
+```
+
+
+```{r}
+excel_sheets("/Users/villatoro/Downloads/FCC_County_results.xlsx")
+
+```
+
+```{r}
+#––– 0. Libraries & Parameters
+library(readxl)
+library(dplyr)
+library(janitor)
+library(stringr)
+library(ggplot2)
+data_dir <- "/Users/villatoro/Downloads/INFO_896"
+file2022 <- file.path(data_dir, "CHR_2022.xlsx")
+five     <- c("Centre","Clinton","Huntingdon","Juniata","Mifflin")
+
+#––– 1. Load & clean Ranked Measure Data
+ranked2022 <- read_xlsx(file2022, sheet="Ranked Measure Data", skip=1) %>%
+  clean_names() %>%
+  transmute(
+    county           = tools::toTitleCase(county),
+    z_pov            = z_score_167,   # % children in poverty
+    z_inc            = z_score_176,   # income ratio
+    hardship_index_2 = (z_score_167 + z_score_176)/2,
+    pcp_rate         = primary_care_physicians_rate
+  ) %>%
+  filter(county %in% five)
+
+#––– 2. Load & clean Additional Measure Data
+peek_add2022 <- read_xlsx(file2022, sheet="Additional Measure Data", n_max=20, col_names=FALSE)
+skip_add2022 <- max(1, which(apply(peek_add2022,1,function(r) any(r %in% c("County","Population")))) - 1)
+add_raw2022  <- read_xlsx(file2022, sheet="Additional Measure Data",
+                          skip=skip_add2022, col_names=TRUE) %>%
+  clean_names()
+
+add2022 <- add_raw2022 %>%
+  transmute(
+    county                  = tools::toTitleCase(county),
+    household_income        = median_household_income,
+    percent_food_insecure   = percent_food_insecure,
+    percent_limited_access  = percent_limited_access_to_healthy_foods,
+    percent_uninsured       = percent_uninsured_138,
+    pct_broadband           = percent_broadband_access  # use CHR’s broadband column
+  ) %>%
+  filter(county %in% five)
+
+#––– 3. Compute income Z‑score
+stats_med2022 <- add2022 %>%
+  summarize(mu = mean(household_income, na.rm=TRUE),
+            sd = sd(  household_income, na.rm=TRUE))
+
+z_med2022 <- add2022 %>%
+  mutate(z_med = (household_income - stats_med2022$mu) / stats_med2022$sd) %>%
+  select(county, z_med)
+
+#––– 4. Build 2022 panel (ext5_2022)
+ext5_2022 <- ranked2022 %>%
+  left_join(z_med2022, by="county") %>%
+  left_join(add2022,    by="county") %>%
+  mutate(
+    hardship_index_3 = rowMeans(across(c(z_pov, z_inc, z_med)), na.rm=TRUE),
+    z_foodinsec      = (percent_food_insecure   - mean(percent_food_insecure,   na.rm=TRUE)) /
+                       sd(percent_food_insecure,    na.rm=TRUE),
+    z_limit          = (percent_limited_access  - mean(percent_limited_access,  na.rm=TRUE)) /
+                       sd(percent_limited_access,   na.rm=TRUE),
+    z_uninsured      = (percent_uninsured       - mean(percent_uninsured,       na.rm=TRUE)) /
+                       sd(percent_uninsured,      na.rm=TRUE),
+    z_pcp            = (pcp_rate                - mean(pcp_rate,               na.rm=TRUE)) /
+                       sd(pcp_rate,                na.rm=TRUE),
+    hardship_index_5 = rowMeans(across(c(z_pov, z_inc, z_med,
+                                         z_foodinsec, z_limit)), na.rm=TRUE)
+  )
+
+#––– 5. Load mortality for 2022
+mortality_2022 <- death_summary %>%
+  filter(year == 2022, county_name %in% five) %>%
+  transmute(
+    county         = county_name,
+    mortality_rate = mortality_rate
+  )
+
+#––– 6. Final join → final2022
+final2022 <- ext5_2022 %>%
+  left_join(mortality_2022, by="county")
+
+#––– 7. Plots, correlations & regression
+
+# Scatter: hardship vs. mortality
+ggplot(final2022, aes(x=hardship_index_5, y=mortality_rate, label=county)) +
+  geom_point(size=3) +
+  geom_text(vjust=-0.5, size=3) +
+  geom_smooth(method="lm", se=TRUE) +
+  labs(
+    x     = "2022 5‑Variable Hardship Index",
+    y     = "Age‑Adjusted Mortality Rate (per 100,000)",
+    title = "2022 Mortality vs. Composite Socioeconomic & Food Access Stress"
+  ) +
+  theme_minimal()
+
+# Scatter: broadband vs. mortality
+ggplot(final2022, aes(x=pct_broadband, y=mortality_rate, label=county)) +
+  geom_point(size=3) +
+  geom_text(vjust=-0.5, size=3) +
+  geom_smooth(method="lm", se=TRUE, linetype="dashed") +
+  scale_x_continuous(labels = scales::percent_format(scale=1)) +
+  labs(
+    x     = "2022 % Broadband Access (CHR)",
+    y     = "Age‑Adjusted Mortality Rate (per 100,000)",
+    title = "2022 Mortality vs. Broadband Access"
+  ) +
+  theme_minimal()
+
+# Pearson correlations
+cat("Pearson r (hardship vs. mortality) [2022]:",
+    round(cor(final2022$hardship_index_5, final2022$mortality_rate, use="complete.obs"), 3), "\n")
+cat("Pearson r (broadband vs. mortality) [2022]:",
+    round(cor(final2022$pct_broadband,   final2022$mortality_rate, use="complete.obs"), 3), "\n")
+
+# Multivariable regression
+mod2022 <- lm(mortality_rate ~ hardship_index_5 + pct_broadband, data=final2022)
+summary(mod2022)
+
+```
+
+
+
+
